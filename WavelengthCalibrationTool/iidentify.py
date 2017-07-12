@@ -10,7 +10,8 @@ import argparse
 from multiprocessing import Process, Pipe
 import numpy as np
 import matplotlib.pyplot as plt
-
+from matplotlib.widgets import SpanSelector
+from termios import tcflush, TCIOFLUSH
 
 def SelectLinesInteractively(SpectrumX,SpectrumY,ExtraUserInput=None,comm_pipe=None, LineSigma=3):
     """ Fits Gaussian to all points user press m and c to confirm
@@ -33,16 +34,31 @@ def SelectLinesInteractively(SpectrumX,SpectrumY,ExtraUserInput=None,comm_pipe=N
     PlotedLines=[junk]
     LinesConfirmedToReturn = []
     LatestLineModel = [None]
+    WindowRange = [-9e9, -9.1e9]  # Default window range
+    # Define the function to run when a span is selected
+    def onselect(xmin, xmax):
+        WindowRange[0] = xmin
+        WindowRange[1] = xmax
+        print('Updated Window range to {0}'.format(WindowRange))
+
     # Define the function to run while key is pressed
     def on_key(event):
         if event.key == 'm' :
             Xpos = event.xdata
-            Model_fit = FitLineToData(SpectrumX,SpectrumY,Xpos,event.ydata,
-                                      AmpisBkgSubtracted=False,Sigma = LineSigma)
+            if WindowRange[0] < Xpos <  WindowRange[1]:
+                print('Fitting inside Window {0}'.format(WindowRange))
+                Model_fit = FitLineToData(SpectrumX,SpectrumY,Xpos,event.ydata,
+                                          AmpisBkgSubtracted=False,Sigma = LineSigma,
+                                          WindowStartEnd = WindowRange)
+            else:
+                print('Fitting using 2*5*{0} pixel Window'.format(LineSigma))
+                Model_fit = FitLineToData(SpectrumX,SpectrumY,Xpos,event.ydata,
+                                          AmpisBkgSubtracted=False,Sigma = LineSigma,
+                                          WindowStartEnd = None)
             if PlotedLines:
                 ax.lines.remove(PlotedLines[-1])  # Remove the last entry in the plotedlines
             IndxCenter = NearestIndex(SpectrumX,Model_fit.mean_0.value)
-            SliceToPlotX = SpectrumX[IndxCenter-4*LineSigma:IndxCenter+4*LineSigma+1]
+            SliceToPlotX = SpectrumX[max(0,IndxCenter-4*LineSigma):min(IndxCenter+4*LineSigma+1,len(SpectrumX)+1)]
             linefit, =  ax.plot(SliceToPlotX,Model_fit(SliceToPlotX),color='r')
             PlotedLines.append(linefit)
             ax.figure.canvas.draw()
@@ -57,15 +73,22 @@ def SelectLinesInteractively(SpectrumX,SpectrumY,ExtraUserInput=None,comm_pipe=N
             PlotedLines.append(junk)  # Add a new junk plot to end of ploted lines
 
             if ExtraUserInput is not None:  # Ask user for the extra input
-                comm_pipe.send_bytes(ExtraUserInput+ ' : ')
+                # Send the Input msg string and the model fit value
+                comm_pipe.send_bytes('{0}: |{1}'.format(ExtraUserInput,LatestLineModel[0].mean_0.value))
                 Uinput = comm_pipe.recv_bytes()
                 LinesConfirmedToReturn.append((LatestLineModel[0],Uinput))
             else:
                 LinesConfirmedToReturn.append(LatestLineModel[0])
             
+
+    # set useblit True on gtkagg for enhanced performance
+    span = SpanSelector(ax, onselect, 'horizontal', useblit=True,
+                        rectprops=dict(alpha=0.5, facecolor='red'))
+
     cid = figi.canvas.mpl_connect('key_press_event', on_key)
     plt.show()
     comm_pipe.send_bytes('')
+    # print('Identified Lines : {0}'.format(LinesConfirmedToReturn))
     return LinesConfirmedToReturn
 
 def FittedFunction(pixels,wavel,sigma=None,method='p3'):
@@ -181,7 +204,7 @@ def AddlinesbyInteractiveSelection(SpectrumY,disp_filename,comm_pipe=None):
     print('Enter more point in the file, or select lines '
           'interatively to obtain Zeroth order solution')
     ListOfLines = SelectLinesInteractively(np.arange(len(SpectrumY)),
-                                               SpectrumY,
+                                           SpectrumY,
                                            ExtraUserInput='Wavelength',
                                            comm_pipe=comm_pipe)
     wavl,pix,sigma = [] , [], []
@@ -239,6 +262,52 @@ def DisplayDispersionSolution(SpectrumY,disp_filename,comm_pipe=None):
     else:
         comm_pipe.send(tuple((None, disp_filename)))
     
+
+def StartInteractiveLineSelectionSubrocess(SpectrumY,disp_filename):
+    """ Starts a subprocess for Adding lines interactively """
+    parent_conn, child_conn = Pipe()
+    fp = Process(target=AddlinesbyInteractiveSelection,args=(SpectrumY,disp_filename,child_conn))
+    fp.start()
+    Clientmsg = '>>'
+    wavelengths_tofit, (wavelengths_inp,pixels_inp,sigma_inp) = read_dispersion_inputfile(disp_filename)
+    FullWavelengthArray = np.array(wavelengths_tofit + wavelengths_inp)
+
+    # if atlest 2 wavelegnths are alredy calibrated, we can predict default value form the line list
+    disp_func = None
+    if len(wavelengths_inp) > 1:
+        if len(wavelengths_inp) == 2 : 
+            pdeg = '1'
+        elif len(wavelengths_inp) == 3 : 
+            pdeg = '2'
+        else:
+            pdeg = '3'
+        disp_func = FittedFunction(pixels=pixels_inp,
+                                   wavel=wavelengths_inp,
+                                   sigma=sigma_inp, method='p'+pdeg)
+
+    while Clientmsg:
+        Clientmsg = parent_conn.recv_bytes()
+        if Clientmsg:
+            PromptMsg = '|'.join(Clientmsg.split('|')[:-1])
+            DefaultValue = ''
+            try:
+                FittedValue = float(Clientmsg.split('|')[-1])
+            except ValueError:
+                # No fitted value provided to find default value..
+                pass
+            else:
+                if disp_func is not None:
+                    DefaultValue = str(FullWavelengthArray[NearestIndex(FullWavelengthArray,disp_func(FittedValue))])
+                    PromptMsg = PromptMsg+'(Default:{0}):'.format(DefaultValue)
+                    
+            tcflush(sys.stdin, TCIOFLUSH) # Flush anythin in terminal buffer
+            usr_inp = raw_input(PromptMsg)
+            if usr_inp:
+                parent_conn.send_bytes(usr_inp)
+            else:
+                parent_conn.send_bytes(DefaultValue)
+    fp.join()
+    
     
 def InteractiveDispersionSolution(SpectrumY,disp_filename=None):
     """ Identify lines in the spectrum and find dispersion solution"""
@@ -252,15 +321,8 @@ def InteractiveDispersionSolution(SpectrumY,disp_filename=None):
     wavelengths_tofit, (wavelengths_inp,pixels_inp,sigma_inp) = read_dispersion_inputfile(disp_filename)
 
     if len(wavelengths_inp) < 2:
-        parent_conn, child_conn = Pipe()
-        fp = Process(target=AddlinesbyInteractiveSelection,args=(SpectrumY,disp_filename,child_conn))
-        fp.start()
-        Clientmsg = '>>'
-        while Clientmsg:
-            Clientmsg = parent_conn.recv_bytes()
-            if Clientmsg:
-                parent_conn.send_bytes(raw_input(Clientmsg))
-        fp.join()
+        print('Not even two starting points to intiailise; Starting Interactive fit Window')
+        StartInteractiveLineSelectionSubrocess(SpectrumY,disp_filename)
     # Plot main figure
     Mainparent_conn, Mainchild_conn = Pipe()
     Mp = Process(target=DisplayDispersionSolution,args=(SpectrumY,disp_filename,Mainchild_conn))
@@ -271,22 +333,15 @@ def InteractiveDispersionSolution(SpectrumY,disp_filename=None):
     print('Enter f to start an interative fit window')
         
     while not DoneWithFitting:
+        tcflush(sys.stdin, TCIOFLUSH) # Flush anythin in terminal buffer
         usr_input = raw_input('>> ')
         if usr_input == 'done':
-            print('Exiting the fitting tool')
+            print('Exiting the fitting tool..')
+            print('Close all Figure windows to exit..')
             DoneWithFitting = True
         elif usr_input == 'f':
             print('Starting Interactive fit Window')
-            parent_conn, child_conn = Pipe()
-            fp = Process(target=AddlinesbyInteractiveSelection,args=(SpectrumY,disp_filename,child_conn))
-            fp.start()
-            Clientmsg = '>>'
-            while Clientmsg:
-                Clientmsg = parent_conn.recv_bytes()
-                if Clientmsg:
-                    parent_conn.send_bytes(raw_input(Clientmsg))
-
-            fp.join()
+            StartInteractiveLineSelectionSubrocess(SpectrumY,disp_filename)
         elif usr_input == 'l':
             print('Fitting lines which do not have pixel coordinates in the text file.')
             TryToFitNewLinesinSpectrum(SpectrumY,disp_filename)
