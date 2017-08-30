@@ -29,7 +29,7 @@ def SelectLinesInteractively(SpectrumX,SpectrumY,ExtraUserInput=None,comm_pipe=N
     figi = plt.figure()
     ax = figi.add_subplot(111)
     ax.set_title('Press m to select line, then c to confirm the selection.')
-    ax.plot(SpectrumX,SpectrumY,linestyle='--', drawstyle='steps-mid',marker='.',color='k')
+    ax.plot(SpectrumX,SpectrumY,linestyle='--', drawstyle='steps-mid',marker=',',color='k')
     junk, = ax.plot([],[])
     PlotedLines=[junk]
     LinesConfirmedToReturn = []
@@ -39,7 +39,7 @@ def SelectLinesInteractively(SpectrumX,SpectrumY,ExtraUserInput=None,comm_pipe=N
     def onselect(xmin, xmax):
         WindowRange[0] = xmin
         WindowRange[1] = xmax
-        print('Updated Window range to {0}'.format(WindowRange))
+        print('Updated Window range to {0}. Width: {1}'.format(WindowRange,xmax-xmin))
 
     # Define the function to run while key is pressed
     def on_key(event):
@@ -119,21 +119,26 @@ def read_dispersion_inputfile(filename):
     wavelengths = []
     pixels = []
     sigma = []
-    
-    with open(filename) as f:
-        for line in f:
-            if line[0] == '#' : continue  # commented lines
-            line = line.rstrip().split('#')[0] # remove any inline comments
-            if len(line.split()) == 1:
-                wavelengths_without_pixels.append(float(line))
-            elif len(line.split()) == 3:
-                wavelengths.append(float(line.split()[0]))
-                pixels.append(float(line.split()[1]))
-                sigma.append(float(line.split()[2]))
-            elif len(line.split()) == 2:
-                wavelengths.append(float(line.split()[0]))
-                pixels.append(float(line.split()[1]))
-                sigma.append(1) # default 1 pix as sigma
+
+    try :
+        with open(filename) as f:
+            for line in f:
+                if line[0] == '#' : continue  # commented lines
+                line = line.rstrip().split('#')[0] # remove any inline comments
+                if len(line.split()) == 1:
+                    wavelengths_without_pixels.append(float(line))
+                elif len(line.split()) == 3:
+                    wavelengths.append(float(line.split()[0]))
+                    pixels.append(float(line.split()[1]))
+                    sigma.append(float(line.split()[2]))
+                elif len(line.split()) == 2:
+                    wavelengths.append(float(line.split()[0]))
+                    pixels.append(float(line.split()[1]))
+                    sigma.append(1) # default 1 pix as sigma
+    except IOError:
+        print('ERROR: Cannot read dispersion file: {0}'.format(filename))
+        raise
+
     return wavelengths_without_pixels, (wavelengths,pixels,sigma)
 
 def writeto_dispersion_inputfile(filename,wavelengths,pixels,sigma,backupsuffix='.bak'):
@@ -165,23 +170,32 @@ def writeto_dispersion_inputfile(filename,wavelengths,pixels,sigma,backupsuffix=
             if wavel not in already_addedinfile:
                 newfile.write('{0} {1} {2}\n'.format(wavel,pix,w))
 
-def update_main_figure(fig_main,SpectrumY,wavl_pix_sigma):
+def update_main_figure(fig_main,SpectrumY,wavltofit__wavl_pix_sigma):
     """ Updates the main plot of the latest dispersion fit.
     Also returns the latest dispersion function used"""
-    print(wavl_pix_sigma)
-    wavelengths_inp,pixels_inp,sigma_inp = wavl_pix_sigma
+    print(wavltofit__wavl_pix_sigma[1])
+    wavelengths_inp,pixels_inp,sigma_inp = wavltofit__wavl_pix_sigma[1]
+    wavelengths_tofit = wavltofit__wavl_pix_sigma[0]
     disp_func = FittedFunction(pixels=pixels_inp,
                                wavel=wavelengths_inp,
                                sigma=sigma_inp, method='p3')
     fig_main.clf()
     ax = fig_main.add_subplot(111)
+
+    # Plot all the fitted lines as well as unfitted lines
+    for xc in wavelengths_inp: 
+        ax.axvline(x=xc, color='g', linestyle='--',alpha=0.7)
+    for xc in wavelengths_tofit: 
+        ax.axvline(x=xc, color='b', linestyle=':',alpha=0.3)
+    # Plot the spectrum
     ax.plot(disp_func(np.arange(len(SpectrumY))),SpectrumY,
             linestyle='-', drawstyle='steps-mid',color='k') #marker='.'
+
     #Colormap which is red when maximum
     colormap = plt.get_cmap('PuRd')
     pointYlevel = np.median(SpectrumY)
     residuesW = [np.abs(w-disp_func(pix))/np.abs(disp_func(pix)-disp_func(pix+sig)) \
-                 for w,pix,sig in zip(*wavl_pix_sigma)]
+                 for w,pix,sig in zip(wavelengths_inp,pixels_inp,sigma_inp)]
 
     NresiduesW = np.array(residuesW)/max(residuesW)
     print('RMS of residue: {0}'.format(np.sqrt(np.mean(np.power(residuesW,2)))))
@@ -250,10 +264,10 @@ def DisplayDispersionSolution(SpectrumY,disp_filename,comm_pipe=None):
     ax = fig_main.add_subplot(111)
     ax.set_title('Press r to refresh the plot.')
     # Define the function to run while key is pressed
-    disp_func_holder = [update_main_figure(fig_main,SpectrumY,read_dispersion_inputfile(disp_filename)[1])]
+    disp_func_holder = [update_main_figure(fig_main,SpectrumY,read_dispersion_inputfile(disp_filename))]
     def on_key(event):
         if event.key == 'r' :
-            disp_func_holder[0] = update_main_figure(fig_main,SpectrumY,read_dispersion_inputfile(disp_filename)[1])
+            disp_func_holder[0] = update_main_figure(fig_main,SpectrumY,read_dispersion_inputfile(disp_filename))
     cid = fig_main.canvas.mpl_connect('key_press_event', on_key)
     plt.show()
     disp_func = disp_func_holder[0]
