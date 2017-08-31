@@ -241,11 +241,18 @@ def AddlinesbyInteractiveSelection(SpectrumY,disp_filename,comm_pipe=None):
         writeto_dispersion_inputfile(disp_filename,wavl,pix,sigma)
 
 
-def TryToFitNewLinesinSpectrum(SpectrumY,disp_filename,LineSigma=3):
-    """ Try to fit gaussian at the line wavelgnths without pixel position in the disp_filename.
-    And add the fitted pixels values to the file """
-    # First read the existing data
-    wavelengths_tofit, (wavelengths_inp,pixels_inp,sigma_inp) = read_dispersion_inputfile(disp_filename)
+def TryToFitNewLinesinSpectrum(SpectrumY,disp_filename,LineSigma=3,reference_dispfile = None):
+    """ Try to fit gaussian at the line wavelengths without pixel position in the disp_filename.
+    And add the fitted pixels values to the file.
+    If reference_dispfile is provided, data in that file will be used to claculate dispersion solution
+    """
+    if reference_dispfile is None:  # use the entry in disp_filename itself
+        reference_dispfile = disp_filename
+
+    # First read the existing calibration
+    _ , (wavelengths_inp,pixels_inp,sigma_inp) = read_dispersion_inputfile(reference_dispfile)
+    # Now read the wavelengths to calibrate
+    wavelengths_tofit, (_discard1,_discard2,_discard3) = read_dispersion_inputfile(disp_filename)
     # Dispertion function
     disp_func = FittedFunction(pixels=pixels_inp,
                                wavel=wavelengths_inp,
