@@ -91,7 +91,7 @@ def SelectLinesInteractively(SpectrumX,SpectrumY,ExtraUserInput=None,comm_pipe=N
     # print('Identified Lines : {0}'.format(LinesConfirmedToReturn))
     return LinesConfirmedToReturn
 
-def FittedFunction(pixels,wavel,sigma=None,method='p3'):
+def FittedFunction(pixels,wavel,sigma=None,method='c3'):
     """ Returns the fitted function f(pixels) = wavel .
     Define all the methods to use for fitting here """
     output_object = None
@@ -101,11 +101,22 @@ def FittedFunction(pixels,wavel,sigma=None,method='p3'):
         deg = int(method[1:])
         p,residuals,rank,sing_values,rcond = np.polyfit(pixels,wavel,deg,w=1/np.array(sigma),full=True)
         print('Stats of the poly fit of degree {0}'.format(deg))
-        print('Coeffs p: {0}'.format(p))
+        print('Poly Coeffs p: {0}'.format(p))
         print('residuals:{0},  rank:{1}, singular_values:{2}, rcond:{3}'.format(residuals,
                                                                                 rank,sing_values,
                                                                                 rcond))
         output_object = np.poly1d(p)
+
+    elif (method[0] == 'c') and method[1:].isdigit():
+        # Use Chebyshev polynomial of c* degree.
+        deg = int(method[1:])
+        c,residuals,rank,sing_values,rcond = numpy.polynomial.chebyshev.chebfit(pixels,wavel,deg,w=1/np.array(sigma),full=True)
+        print('Stats of the Chebyshev polynomial fit of degree {0}'.format(deg))
+        print('Cheb Coeffs c: {0}'.format(c))
+        print('residuals:{0},  rank:{1}, singular_values:{2}, rcond:{3}'.format(residuals,
+                                                                                rank,sing_values,
+                                                                                rcond))
+        output_object = lambda x : numpy.polynomial.chebyshev.chebval(x, c)
     else:
         print('Error: unknown fitting method {0}'.format(method))
 
@@ -178,7 +189,7 @@ def update_main_figure(fig_main,SpectrumY,wavltofit__wavl_pix_sigma):
     wavelengths_tofit = wavltofit__wavl_pix_sigma[0]
     disp_func = FittedFunction(pixels=pixels_inp,
                                wavel=wavelengths_inp,
-                               sigma=sigma_inp, method='p3')
+                               sigma=sigma_inp, method='c3')
     fig_main.clf()
     ax = fig_main.add_subplot(111)
 
@@ -238,7 +249,7 @@ def TryToFitNewLinesinSpectrum(SpectrumY,disp_filename,LineSigma=3):
     # Dispertion function
     disp_func = FittedFunction(pixels=pixels_inp,
                                wavel=wavelengths_inp,
-                               sigma=sigma_inp, method='p3')
+                               sigma=sigma_inp, method='c3')
 
     pix_fitted = []
     sigma_fitted = []
@@ -297,7 +308,7 @@ def StartInteractiveLineSelectionSubrocess(SpectrumY,disp_filename):
             pdeg = '3'
         disp_func = FittedFunction(pixels=pixels_inp,
                                    wavel=wavelengths_inp,
-                                   sigma=sigma_inp, method='p'+pdeg)
+                                   sigma=sigma_inp, method='c'+pdeg)
 
     while Clientmsg:
         Clientmsg = parent_conn.recv_bytes()
