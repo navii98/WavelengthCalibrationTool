@@ -20,7 +20,8 @@ setup(name='WavelengthCalibrationTool',
       license='GPLv3+',
       packages=['WavelengthCalibrationTool'],
       entry_points = {
-          'console_scripts': ['iidentify=WavelengthCalibrationTool.iidentify:main'],
+          'console_scripts': ['iidentify=WavelengthCalibrationTool.iidentify:main',
+                          'reidentify=WavelengthCalibrationTool.reidentify:main'],
       },
       install_requires = [
           'numpy',
