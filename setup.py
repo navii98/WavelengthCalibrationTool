@@ -21,7 +21,8 @@ setup(name='WavelengthCalibrationTool',
       packages=['WavelengthCalibrationTool'],
       entry_points = {
           'console_scripts': ['iidentify=WavelengthCalibrationTool.iidentify:main',
-                          'reidentify=WavelengthCalibrationTool.reidentify:main'],
+                              'reidentify=WavelengthCalibrationTool.reidentify:main',
+                              'recalibrate=WavelengthCalibrationTool.recalibrate:main'],
       },
       install_requires = [
           'numpy',
