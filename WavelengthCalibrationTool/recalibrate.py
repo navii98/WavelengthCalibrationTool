@@ -35,11 +35,17 @@ def transformed_spectrum(FluxSpec, *params, **kwargs):
 
     # First paramete is the flux scaling
     scaledFlux = FluxSpec*params[0]
+
     # Remaing parameters for defining the ploynomial drift of coordinates
+    if len(params[1:]) == 1:  # Zero offset coeff only
+        coeffs =  params[1:] + (1,)  # Add fixed 1 slope
+    else:   
+        coeffs =  params[1:]  # Use all the coefficents for transforming polynomial 
+
     if method == 'p':
-        Xtransformed = np.polynomial.polynomial.polyval(Xoriginal, params[1:])
+        Xtransformed = np.polynomial.polynomial.polyval(Xoriginal, coeffs)
     elif method == 'c':
-        Xtransformed = np.polynomial.chebyshev.chebval(Xoriginal, params[1:])
+        Xtransformed = np.polynomial.chebyshev.chebval(Xoriginal, coeffs)
         
     # interpolate the original spectrum to new coordinates
     tck = interp.splrep(Xoriginal, scaledFlux)
@@ -69,9 +75,14 @@ def ReCalibrateDispersionSolution(SpectrumY,RefSpectrum,method='p3'):
         deg = int(method[1:])
         # Initial estimate of the parameters to fit
         # [scalefactor,*p] where p is the polynomial coefficents
-        p0 = [1,0,1]+[0]*(deg-1)
+        if deg > 0:
+            p0 = [1,0,1]+[0]*(deg-1)
+        else:
+            p0 = [1,0]
         poly_transformedSpectofit = partial(transformed_spectrum,method='p',WavlCoords=scaledWavl)
         popt, pcov = optimize.curve_fit(poly_transformedSpectofit, RefFlux, SpectrumY, p0=p0)
+        if deg < 1: # Append slope 1 coeff
+            popt = np.concatenate([popt, [1]])
         # Now we shall use the transformation obtained for scaled Ref Wavl coordinates
         # to transform the calibrated wavelength array.
         transformed_scaledWavl = np.polynomial.polynomial.polyval(scaledWavl, popt[1:])
@@ -81,9 +92,14 @@ def ReCalibrateDispersionSolution(SpectrumY,RefSpectrum,method='p3'):
         deg = int(method[1:])
         # Initial estimate of the parameters to fit
         # [scalefactor,*c] where c is the chebyshev polynomial coefficents
-        p0 = [1,0,1]+[0]*(deg-1)
+        if deg > 0:
+            p0 = [1,0,1]+[0]*(deg-1)
+        else:
+            p0 = [1,0]
         cheb_transformedSpectofit = partial(transformed_spectrum,method='c',WavlCoords=scaledWavl)
         popt, pcov = optimize.curve_fit(cheb_transformedSpectofit, RefFlux, SpectrumY, p0=p0)
+        if deg < 1: # Append slope 1 coeff
+            popt = np.concatenate([popt, [1]])
         # Now we shall use the transformation obtained for scaled Ref Wavl coordinates
         # to transform the calibrated wavelength array.
         transformed_scaledWavl = np.polynomial.chebyshev.chebval(scaledWavl, popt[1:])
