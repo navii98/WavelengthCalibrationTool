@@ -7,6 +7,8 @@ import uuid
 import time
 import readline
 import argparse
+import re
+import os
 from multiprocessing import Process, Pipe
 import numpy as np
 import matplotlib.pyplot as plt
@@ -110,13 +112,13 @@ def FittedFunction(pixels,wavel,sigma=None,method='c3'):
     elif (method[0] == 'c') and method[1:].isdigit():
         # Use Chebyshev polynomial of c* degree.
         deg = int(method[1:])
-        c,residuals,rank,sing_values,rcond = numpy.polynomial.chebyshev.chebfit(pixels,wavel,deg,w=1/np.array(sigma),full=True)
+        c, (residuals,rank,sing_values,rcond) = np.polynomial.chebyshev.chebfit(pixels,wavel,deg,w=1/np.array(sigma),full=True)
         print('Stats of the Chebyshev polynomial fit of degree {0}'.format(deg))
         print('Cheb Coeffs c: {0}'.format(c))
         print('residuals:{0},  rank:{1}, singular_values:{2}, rcond:{3}'.format(residuals,
                                                                                 rank,sing_values,
                                                                                 rcond))
-        output_object = lambda x : numpy.polynomial.chebyshev.chebval(x, c)
+        output_object = lambda x : np.polynomial.chebyshev.chebval(x, c)
     else:
         print('Error: unknown fitting method {0}'.format(method))
 
@@ -189,7 +191,7 @@ def update_main_figure(fig_main,SpectrumY,wavltofit__wavl_pix_sigma):
     wavelengths_tofit = wavltofit__wavl_pix_sigma[0]
     disp_func = FittedFunction(pixels=pixels_inp,
                                wavel=wavelengths_inp,
-                               sigma=sigma_inp, method='c3')
+                               sigma=sigma_inp, method='c6')
     fig_main.clf()
     ax = fig_main.add_subplot(111)
 
@@ -256,7 +258,7 @@ def TryToFitNewLinesinSpectrum(SpectrumY,disp_filename,LineSigma=3,reference_dis
     # Dispertion function
     disp_func = FittedFunction(pixels=pixels_inp,
                                wavel=wavelengths_inp,
-                               sigma=sigma_inp, method='c3')
+                               sigma=sigma_inp, method='c6')
 
     pix_fitted = []
     sigma_fitted = []
@@ -311,6 +313,8 @@ def StartInteractiveLineSelectionSubrocess(SpectrumY,disp_filename):
             pdeg = '1'
         elif len(wavelengths_inp) == 3 : 
             pdeg = '2'
+        elif len(wavelengths_inp) > 20 : 
+            pdeg = '6'
         else:
             pdeg = '3'
         disp_func = FittedFunction(pixels=pixels_inp,
@@ -397,11 +401,28 @@ def parse_args():
                         help="Output filename to write calibrated Wavelength array")
     args = parser.parse_args()
     return args
-    
+
+def load_fluxdata(filename):
+    """ Loads the flux data """
+    if os.path.splitext(filename)[-1] == '.npy':
+        return np.load(args.SpectrumFluxFile)
+    elif os.path.splitext(filename)[-1] == '.fits':
+        from astropy.io import fits
+        return fits.getdata(filename)
+    else:
+        print('Unknown input file extension for file : {0}'.format(filename))
+        sys.exit(1)
+
 def main():
     """ Standalone Interactive Line Identify Tool """
-    args = parse_args()    
-    SpectrumY = np.load(args.SpectrumFluxFile)
+    args = parse_args()
+    extbracket = re.search('\[(\d+)\]$', os.path.splitext(args.SpectrumFluxFile)[-1])
+    if extbracket is None:
+        SpectrumY = load_fluxdata(args.SpectrumFluxFile)
+    else:
+        order = int(extbracket.group(1))
+        SpectrumY = load_fluxdata(args.SpectrumFluxFile[:-len('[{0}]'.format(order))])[order]
+
     disp_fname = args.DispTableFile
     Output_fname = args.OutputWavlFile
     wavl,df = InteractiveDispersionSolution(SpectrumY,disp_filename=disp_fname)
