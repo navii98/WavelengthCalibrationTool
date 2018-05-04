@@ -51,13 +51,14 @@ def transformed_spectrum(FluxSpec, *params, **kwargs):
     tck = interp.splrep(Xoriginal, scaledFlux)
     return interp.splev(Xtransformed, tck)
 
-def ReCalibrateDispersionSolution(SpectrumY,RefSpectrum,method='p3'):
+def ReCalibrateDispersionSolution(SpectrumY,RefSpectrum,method='p3',sigma=None):
     """ Recalibrate the dispertion solution of SpectrumY using 
     RefSpectrum by fitting the relative drift using the input method.
     Input:
        SpectrumY: Un-calibrated Spectrum Flux array
        RefSpectrum: Wavelength Calibrated reference spectrum (Flux vs wavelegnth array:(N,2))
        method: (str, default: p3) the method used to model and fit the drift in calibration
+       sigma: See sigma arg of scipy.optimize.curve_fit ; it is the inverse weights for residuals
 
     Returns:
         wavl_sln : Output wavelength solution
@@ -80,7 +81,7 @@ def ReCalibrateDispersionSolution(SpectrumY,RefSpectrum,method='p3'):
         else:
             p0 = [1,0]
         poly_transformedSpectofit = partial(transformed_spectrum,method='p',WavlCoords=scaledWavl)
-        popt, pcov = optimize.curve_fit(poly_transformedSpectofit, RefFlux, SpectrumY, p0=p0)
+        popt, pcov = optimize.curve_fit(poly_transformedSpectofit, RefFlux, SpectrumY, p0=p0,sigma=sigma)
         if deg < 1: # Append slope 1 coeff
             popt = np.concatenate([popt, [1]])
         # Now we shall use the transformation obtained for scaled Ref Wavl coordinates
@@ -97,7 +98,7 @@ def ReCalibrateDispersionSolution(SpectrumY,RefSpectrum,method='p3'):
         else:
             p0 = [1,0]
         cheb_transformedSpectofit = partial(transformed_spectrum,method='c',WavlCoords=scaledWavl)
-        popt, pcov = optimize.curve_fit(cheb_transformedSpectofit, RefFlux, SpectrumY, p0=p0)
+        popt, pcov = optimize.curve_fit(cheb_transformedSpectofit, RefFlux, SpectrumY, p0=p0,sigma=sigma)
         if deg < 1: # Append slope 1 coeff
             popt = np.concatenate([popt, [1]])
         # Now we shall use the transformation obtained for scaled Ref Wavl coordinates
