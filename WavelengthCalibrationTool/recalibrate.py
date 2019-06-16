@@ -6,6 +6,7 @@ import argparse
 import numpy as np
 import scipy.interpolate as interp
 import scipy.optimize as optimize
+from scipy.constants import speed_of_light
 from functools32 import partial
 
 def scale_interval_m1top1(x,a,b,inverse_scale=False):
@@ -46,6 +47,8 @@ def transformed_spectrum(FluxSpec, *params, **kwargs):
         Xtransformed = np.polynomial.polynomial.polyval(Xoriginal, coeffs)
     elif method == 'c':
         Xtransformed = np.polynomial.chebyshev.chebval(Xoriginal, coeffs)
+    elif method == 'v': # (1+v/c) shift
+        Xtransformed = Xoriginal*(1+coeffs[0]/speed_of_light)
         
     # interpolate the original spectrum to new coordinates
     tck = interp.splrep(Xoriginal, scaledFlux)
@@ -68,8 +71,9 @@ def ReCalibrateDispersionSolution(SpectrumY,RefSpectrum,method='p3',sigma=None):
     RefFlux = RefSpectrum[:,1]
     RefWavl = RefSpectrum[:,0]
 
-    # For stability and fast convergence lets scale the wavelength to -1 to 1 interval.
-    scaledWavl = scale_interval_m1top1(RefWavl,a=min(RefWavl),b=max(RefWavl))
+    # For stability and fast convergence lets scale the wavelength to -1 to 1 interval. (Except for doppler shift method)
+    if method[0] != 'v':
+        scaledWavl = scale_interval_m1top1(RefWavl,a=min(RefWavl),b=max(RefWavl))
 
     if (method[0] == 'p') and method[1:].isdigit():
         # Use polynomial of p* degree.
@@ -105,12 +109,22 @@ def ReCalibrateDispersionSolution(SpectrumY,RefSpectrum,method='p3',sigma=None):
         # to transform the calibrated wavelength array.
         transformed_scaledWavl = np.polynomial.chebyshev.chebval(scaledWavl, popt[1:])
 
+    elif (method[0] == 'v'):
+        # Use the 1+v/c formula to shift the spectrum. Usefull in grating sectrogrpahs where flexure is before grating.
+        # Initial estimate of the parameters to fit  [1 for scaling, and 0 for velocity]
+        p0 = [1,0]
+        vel_transformedSpectofit = partial(transformed_spectrum,method='v',WavlCoords=RefWavl)
+        popt, pcov = optimize.curve_fit(vel_transformedSpectofit, RefFlux, SpectrumY, p0=p0,sigma=sigma)
+        # Now we shall use the transformation obtained for scaled Ref Wavl coordinates
+        # to transform the calibrated wavelength array.
+        wavl_sln = RefWavl *(1+ popt[1]/speed_of_light)
     else:
         raise NotImplementedError('Unknown fitting method {0}'.format(method))
 
-    wavl_sln = scale_interval_m1top1(transformed_scaledWavl,
-                                     a=min(RefWavl),b=max(RefWavl),
-                                     inverse_scale=True)
+    if method[0] != 'v':
+        wavl_sln = scale_interval_m1top1(transformed_scaledWavl,
+                                         a=min(RefWavl),b=max(RefWavl),
+                                         inverse_scale=True)
 
     return wavl_sln, popt
         
