@@ -49,6 +49,8 @@ def transformed_spectrum(FluxSpec, *params, **kwargs):
         Xtransformed = np.polynomial.chebyshev.chebval(Xoriginal, coeffs)
     elif method == 'v': # (1+v/c) shift
         Xtransformed = Xoriginal*(1+coeffs[0]/speed_of_light)
+    elif method == 'x': # (w + w v/c +P dw/dp) combined shift
+        Xtransformed = Xoriginal*(1+coeffs[0]/speed_of_light) + coeffs[1]*np.gradient(Xoriginal)
         
     # interpolate the original spectrum to new coordinates
     tck = interp.splrep(Xoriginal, scaledFlux)
@@ -63,6 +65,11 @@ def ReCalibrateDispersionSolution(SpectrumY,RefSpectrum,method='p3',sigma=None):
        method: (str, default: p3) the method used to model and fit the drift in calibration
        sigma: See sigma arg of scipy.optimize.curve_fit ; it is the inverse weights for residuals
 
+      Available methods: 
+               pN : Fits a Nth order polynomial distortion  
+               cN : Fits a Nth order Chebyshev polynomial distortion 
+               v  : Fits a velocity redshift distortion
+               x  : Fits a velocity redshift distortion and a 0th order pixel shift distortion 
     Returns:
         wavl_sln : Output wavelength solution
         fitted_drift : the fitted calibration drift coeffients 
@@ -72,7 +79,7 @@ def ReCalibrateDispersionSolution(SpectrumY,RefSpectrum,method='p3',sigma=None):
     RefWavl = RefSpectrum[:,0]
 
     # For stability and fast convergence lets scale the wavelength to -1 to 1 interval. (Except for doppler shift method)
-    if method[0] != 'v':
+    if method[0] in ['p','c']:
         scaledWavl = scale_interval_m1top1(RefWavl,a=min(RefWavl),b=max(RefWavl))
 
     if (method[0] == 'p') and method[1:].isdigit():
@@ -111,17 +118,28 @@ def ReCalibrateDispersionSolution(SpectrumY,RefSpectrum,method='p3',sigma=None):
 
     elif (method[0] == 'v'):
         # Use the 1+v/c formula to shift the spectrum. Usefull in grating sectrogrpahs where flexure is before grating.
-        # Initial estimate of the parameters to fit  [1 for scaling, and 0 for velocity]
-        p0 = [1,0]
+        # Initial estimate of the parameters to fit  [1 for scaling, and 100 for velocity]
+        p0 = [1,100]
         vel_transformedSpectofit = partial(transformed_spectrum,method='v',WavlCoords=RefWavl)
         popt, pcov = optimize.curve_fit(vel_transformedSpectofit, RefFlux, SpectrumY, p0=p0,sigma=sigma)
         # Now we shall use the transformation obtained for scaled Ref Wavl coordinates
         # to transform the calibrated wavelength array.
         wavl_sln = RefWavl *(1+ popt[1]/speed_of_light)
+
+    elif (method[0] == 'x'):
+        # Use the w+ w*v/c + deltaP*dw/dp formula to shift the spectrum. Usefull in grating sectrogrpahs where flexure is before grating as well as after grating.
+        # Initial estimate of the parameters to fit  [1 for scaling, and 100 for velocity,0 for pixshift]
+        p0 = [1,100,0]
+        velp_transformedSpectofit = partial(transformed_spectrum,method='x',WavlCoords=RefWavl)
+        popt, pcov = optimize.curve_fit(velp_transformedSpectofit, RefFlux, SpectrumY, p0=p0,sigma=sigma)
+        # Now we shall use the transformation obtained for scaled Ref Wavl coordinates
+        # to transform the calibrated wavelength array.
+        wavl_sln = RefWavl *(1+ popt[1]/speed_of_light) + popt[2]*np.gradient(RefWavl)
+
     else:
         raise NotImplementedError('Unknown fitting method {0}'.format(method))
 
-    if method[0] != 'v':
+    if method[0] in ['p','c']:
         wavl_sln = scale_interval_m1top1(transformed_scaledWavl,
                                          a=min(RefWavl),b=max(RefWavl),
                                          inverse_scale=True)
