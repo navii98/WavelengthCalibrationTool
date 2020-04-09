@@ -41,7 +41,7 @@ def TransformLegendreCoeffs(LC,PVWdic):
     p = PVWdic['p']#*2./len(RefWavl)
 
     PV = LCTransformMatrixPV(v,p,deg=ldeg)
-    T_LC = np.matmul(PV,LC+w)
+    T_LC = np.array(np.matmul(PV,LC+w))[0]
     return T_LC
 
 
