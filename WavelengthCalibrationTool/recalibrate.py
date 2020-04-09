@@ -89,7 +89,7 @@ def transformed_spectrum(FluxSpec, *params, **kwargs):
     return interp.splev(Xtransformed, tck)
 
 
-def errorfunc_tominimise(params,method='l',Reg=0,RefSpectrum=None,DataToFit=None,sigma=None,defaultParamDic=None,**kargs ):
+def errorfunc_tominimise(params,method='l',Reg=0,RefSpectrum=None,DataToFit=None,sigma=None,defaultParamDic=None,**kwargs ):
     """ Error function to minimise to fit model.
     Currently implemented for only the regularised fitting of Legendre coefficent transform
     Reg is the Regularisation coefficent for LASSO regularisation.
@@ -101,17 +101,17 @@ def errorfunc_tominimise(params,method='l',Reg=0,RefSpectrum=None,DataToFit=None
     if method == 'l':
         grid = np.linspace(-1,1,len(RefSpectrum))
         if 'WavlCoords' in kwargs:
-            Xoriginal = kargs['WavlCoords']
+            Xoriginal = kwargs['WavlCoords']
         else:
             Xoriginal = None
         if 'LCRef' in kwargs:
-            LCRef = kargs['LCRef']
+            LCRef = kwargs['LCRef']
             if Xoriginal is None:
                 Xoriginal = np.polynomial.legendre.legval(grid,LCRef) 
         else:
-            if ('ldeg' in kwargs['ldeg']) and ('WavlCoords' in kwargs) :
+            if ('ldeg' in kwargs) and ('WavlCoords' in kwargs) :
                 LCRef = np.polynomial.legendre.legfit(grid,Xoriginal,deg=ldeg)
-        paramstring = kwargs['paramstring']
+        paramstring = kwargs['paramstofit']
         if defaultParamDic is None:
             PVWdic = {'v':0,'p':0,'w':0}
         else:
