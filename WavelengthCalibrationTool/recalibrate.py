@@ -278,7 +278,7 @@ def ReCalibrateDispersionSolution(SpectrumY,RefSpectrum,method='p3',sigma=None,c
         return wavl_sln, popt
         
 
-def parse_args():
+def parse_args(raw_args=None):
     """ Parses the command line input arguments """
     parser = argparse.ArgumentParser(description="Non-Interactive Wavelength Re-Calibration Tool")
     parser.add_argument('SpectrumFluxFile', type=str,
@@ -287,12 +287,12 @@ def parse_args():
                         help="Reference Spectrum file which is calibrated, containing Flux vs wavelengths for the same pixels")
     parser.add_argument('OutputWavlFile', type=str,
                         help="Output filename to write calibrated Wavelength array")
-    args = parser.parse_args()
+    args = parser.parse_args(raw_args)
     return args
     
-def main():
+def main(raw_args=None):
     """ Standalone Interactive Line Identify Tool """
-    args = parse_args()    
+    args = parse_args(raw_args)
     SpectrumY = np.load(args.SpectrumFluxFile)
     RefSpectrum = np.load(args.RefSpectrumFile)
     Output_fname = args.OutputWavlFile
