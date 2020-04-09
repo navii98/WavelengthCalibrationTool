@@ -6,6 +6,7 @@ import argparse
 import numpy as np
 import scipy.interpolate as interp
 import scipy.optimize as optimize
+from scipy import linalg 
 from scipy.constants import speed_of_light
 from functools32 import partial
 
@@ -15,6 +16,34 @@ def scale_interval_m1top1(x,a,b,inverse_scale=False):
         return ((b-a)*x + a+b)/2.0
     else:
         return (2.0*x - (b+a))/(b-a)
+
+def LCTransformMatrixPV(v,p,deg=6):
+    """ Returns the Legendre coefficent transform matrix pf velocity and pixel shift"""
+    TM_vel = np.matrix(np.identity(deg+1))*(1+v)  # Velocity compoent alone
+    TM_pix = np.matrix(np.identity(deg+1))
+    for i in range(TM_pix.shape[1]):
+        for j in range(i+1,TM_pix.shape[0],2):
+            TM_pix[i,j]=p*(i*2 +1)
+    return np.matmul(TM_pix,TM_vel)
+
+def TransformLegendreCoeffs(LC,PVWdic):
+    """ Returns the transfromed Legendre coefficent based on the pixel shift, velocity shft, and Wavelength shift values 
+    LC: Input coefficents
+    PVWdic: Dictionary containing the transformation coefficents for p,v, and w.
+    Returns :
+    T_LC: Transformed LC = P*V*(LC+w)
+    """
+    ldeg = len(LC)-1
+    w = np.zeros(ldeg+1)
+    w[0] = PVWdic['w']
+
+    v = PVWdic['v']
+    p = PVWdic['p']#*2./len(RefWavl)
+
+    PV = LCTransformMatrixPV(v,p,deg=ldeg)
+    T_LC = np.matmul(PV,LC+w)
+    return T_LC
+
 
 def transformed_spectrum(FluxSpec, *params, **kwargs):
     """ Returns transformed and interpolated scaled FluxSpec for fitting with data .
@@ -51,12 +80,61 @@ def transformed_spectrum(FluxSpec, *params, **kwargs):
         Xtransformed = Xoriginal*(1+coeffs[0]/speed_of_light)
     elif method == 'x': # (w + w v/c +P dw/dp) combined shift
         Xtransformed = Xoriginal*(1+coeffs[0]/speed_of_light) + coeffs[1]*np.gradient(Xoriginal)
+    else:
+        print('method {0} is not implemented'.format(method))
+        return None
         
     # interpolate the original spectrum to new coordinates
     tck = interp.splrep(Xoriginal, scaledFlux)
     return interp.splev(Xtransformed, tck)
 
-def ReCalibrateDispersionSolution(SpectrumY,RefSpectrum,method='p3',sigma=None):
+
+def errorfunc_tominimise(params,method='l',Reg=0,RefSpectrum=None,DataToFit=None,sigma=None,defaultParamDic=None,**kargs ):
+    """ Error function to minimise to fit model.
+    Currently implemented for only the regularised fitting of Legendre coefficent transform
+    Reg is the Regularisation coefficent for LASSO regularisation.
+    defaultParamDic: is the dictionary of the deafult values for all the parameters which can include parameters not being fitted.
+                      For example: for method=l , defaultParamDic = {'v':0,'p':0,'w':0}"""
+    
+    # First paramete is the flux scaling
+    scaledFlux = RefSpectrum*params[0]
+    if method == 'l':
+        grid = np.linspace(-1,1,len(RefSpectrum))
+        if 'WavlCoords' in kwargs:
+            Xoriginal = kargs['WavlCoords']
+        else:
+            Xoriginal = None
+        if 'LCRef' in kwargs:
+            LCRef = kargs['LCRef']
+            if Xoriginal is None:
+                Xoriginal = np.polynomial.legendre.legval(grid,LCRef) 
+        else:
+            if ('ldeg' in kwargs['ldeg']) and ('WavlCoords' in kwargs) :
+                LCRef = np.polynomial.legendre.legfit(grid,Xoriginal,deg=ldeg)
+        paramstring = kwargs['paramstring']
+        if defaultParamDic is None:
+            PVWdic = {'v':0,'p':0,'w':0}
+        else:
+            PVWdic = defaultParamDic
+        for i,s in enumerate(paramstring):
+            PVWdic[s] = params[i+1]
+        LCnew = TransformLegendreCoeffs(LCRef,PVWdic)
+
+        Xtransformed = np.polynomial.legendre.legval(grid,LCnew) 
+    else:
+        print('method {0} is not implemented'.format(method))
+        return None
+
+    # interpolate the original spectrum to new coordinates
+    tck = interp.splrep(Xoriginal, scaledFlux)
+    PredictedSpectrum = interp.splev(Xtransformed, tck)
+    if sigma is None:
+        sigma=1
+    return  np.concatenate(((PredictedSpectrum-DataToFit)/sigma,Reg*np.abs(params[1:])))
+
+    
+
+def ReCalibrateDispersionSolution(SpectrumY,RefSpectrum,method='p3',sigma=None,cov=False,Reg=0,defaultParamDic=None):
     """ Recalibrate the dispertion solution of SpectrumY using 
     RefSpectrum by fitting the relative drift using the input method.
     Input:
@@ -64,12 +142,21 @@ def ReCalibrateDispersionSolution(SpectrumY,RefSpectrum,method='p3',sigma=None):
        RefSpectrum: Wavelength Calibrated reference spectrum (Flux vs wavelegnth array:(N,2))
        method: (str, default: p3) the method used to model and fit the drift in calibration
        sigma: See sigma arg of scipy.optimize.curve_fit ; it is the inverse weights for residuals
-
+       cov: (bool, default False) Set cov=True to return an estimate of the covarience matrix of parameters 
+       Reg: Regularisation parameter for LASSO (Currently implemented only for multi parameter Legendre polynomials) 
+       defaultParamDic: Default values for parameters in a multi parameter model. Example for l* methods. 
       Available methods: 
                pN : Fits a Nth order polynomial distortion  
                cN : Fits a Nth order Chebyshev polynomial distortion 
                v  : Fits a velocity redshift distortion
                x  : Fits a velocity redshift distortion and a 0th order pixel shift distortion 
+               lwN: Fits Nth order Legendre coefficent transform with wavelenth shift as the single parameter 
+               lvN: Fits Nth order Legendre coefficent transform with velocity shift as the single parameter
+               lpN: Fits Nth order Legendre coefficent transform with pixel shift as the single parameter 
+               lpwN: Fits Nth order Legendre coefficent transform with pixel shift and wavelenth shift as two parameters
+               lvwN: Fits Nth order Legendre coefficent transform with velocity shift and wavelenth shift as two parameters
+               lpvN: Fits Nth order Legendre coefficent transform with pixel shift and velocity shift as two parameters
+               lpvwN: Fits Nth order Legendre coefficent transform with pixel shift, velocity shift, and wavelength shift as three parameters
     Returns:
         wavl_sln : Output wavelength solution
         fitted_drift : the fitted calibration drift coeffients 
@@ -136,6 +223,47 @@ def ReCalibrateDispersionSolution(SpectrumY,RefSpectrum,method='p3',sigma=None):
         # to transform the calibrated wavelength array.
         wavl_sln = RefWavl *(1+ popt[1]/speed_of_light) + popt[2]*np.gradient(RefWavl)
 
+
+    elif (method[0] == 'l'):
+        # Usefull in grating sectrogrpahs where flexure is before grating as well as after grating.
+        # Parameters to fit
+        if defaultParamDic is None:
+            PVWdic = {'v':0,'p':0,'w':0}
+        else:
+            PVWdic = defaultParamDic
+
+        paramstring = [s for s in method[1:] if not s.isdigit()]
+        ldeg = int(''.join([s for s in  method[1:] if s.isdigit()]))
+
+        # Legendre coefficents for the polynomial
+        grid = np.linspace(-1,1,len(RefWavl))
+        LCRef = np.polynomial.legendre.legfit(grid,RefWavl,deg=ldeg)
+        
+        Initp={'v':1e-4,'p':0.001,'w':0.01}
+        # Initial estimate of the parameters to fit  [0 for each parameter to fit]
+        p0 = [1]+[Initp[s] for s in paramstring]  # 1 is for scaling, rest are the parameters
+        l_errorfunc_tominimise = partial(errorfunc_tominimise,method='l',Reg=Reg,paramstofit=paramstring,
+                                         WavlCoords=RefWavl,RefSpectrum=RefFlux,DataToFit=SpectrumY,sigma=sigma,
+                                         LCRef=LCRef,defaultParamDic=PVWdic) 
+        fitoutput = optimize.least_squares(l_errorfunc_tominimise,p0)
+        popt = fitoutput['x'] 
+        if cov :
+            # Calculate pcov based on scipy.curve_fit code ##################################
+            # Do Moore-Penrose inverse discarding zero singular values.
+            _, s, VT = linalg.svd(fitoutput.jac, full_matrices=False)
+            threshold = np.finfo(float).eps * max(fitoutput.jac.shape) * s[0]
+            s = s[s > threshold]
+            VT = VT[:s.size]
+            pcov = np.dot(VT.T / s**2, VT)
+        ############################################################# End of code form scipy.curve_fit
+        # Now we shall use the transformation obtained for scaled Ref Wavl coordinates
+        # to transform the calibrated wavelength array.
+        for i,s in enumerate(paramstring):
+            PVWdic[s] = popt[i+1]
+        LCnew = TransformLegendreCoeffs(LCRef,PVWdic)
+
+        wavl_sln = np.polynomial.legendre.legval(grid,LCnew) 
+
     else:
         raise NotImplementedError('Unknown fitting method {0}'.format(method))
 
@@ -144,7 +272,10 @@ def ReCalibrateDispersionSolution(SpectrumY,RefSpectrum,method='p3',sigma=None):
                                          a=min(RefWavl),b=max(RefWavl),
                                          inverse_scale=True)
 
-    return wavl_sln, popt
+    if cov :
+        return wavl_sln, popt, pcov
+    else:
+        return wavl_sln, popt
         
 
 def parse_args():
