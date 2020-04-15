@@ -17,31 +17,38 @@ def scale_interval_m1top1(x,a,b,inverse_scale=False):
     else:
         return (2.0*x - (b+a))/(b-a)
 
-def LCTransformMatrixPV(v,p,deg=6):
-    """ Returns the Legendre coefficent transform matrix pf velocity and pixel shift"""
-    TM_vel = np.matrix(np.identity(deg+1))*(1+v)  # Velocity compoent alone
+def LCTransformMatrixP(p,deg=6):
+    """ Returns the Legendre coefficent transform matrix of pixel shift"""
     TM_pix = np.matrix(np.identity(deg+1))
     for i in range(TM_pix.shape[1]):
         for j in range(i+1,TM_pix.shape[0],2):
             TM_pix[i,j]=p*(i*2 +1)
-    return np.matmul(TM_pix,TM_vel)
+    return TM_pix
 
-def TransformLegendreCoeffs(LC,PVWdic):
+def TransformLegendreCoeffs(LC,PVWdic,normP=False):
     """ Returns the transfromed Legendre coefficent based on the pixel shift, velocity shft, and Wavelength shift values 
     LC: Input coefficents
     PVWdic: Dictionary containing the transformation coefficents for p,v, and w.
+    normP : If True will remove the scaling factor from pixel shift which is degenerate with velocity
     Returns :
-    T_LC: Transformed LC = P*V*(LC+w)
+    T_LC: Transformed LC = V*P*(LC+w)
     """
     ldeg = len(LC)-1
     w = np.zeros(ldeg+1)
     w[0] = PVWdic['w']
+    T_LC = LC + w   # Wavl shift
+
+    p = PVWdic['p']
+    TM_pix = LCTransformMatrixP(p,deg=ldeg)
+    Original_norm = np.linalg.norm(T_LC)
+    T_LC = np.array(np.matmul(TM_pix,T_LC))[0]  # Pixel shift
+    if normP:
+        # Rescale to previous norm to break degeneracy with velocity shift
+        T_LC /= np.linalg.norm(T_LC)/Original_norm 
 
     v = PVWdic['v']
-    p = PVWdic['p']#*2./len(RefWavl)
+    T_LC = T_LC * (1+v)  # Velocity shift
 
-    PV = LCTransformMatrixPV(v,p,deg=ldeg)
-    T_LC = np.array(np.matmul(PV,LC+w))[0]
     return T_LC
 
 
@@ -118,7 +125,11 @@ def errorfunc_tominimise(params,method='l',Reg=0,RefSpectrum=None,DataToFit=None
             PVWdic = defaultParamDic
         for i,s in enumerate(paramstring):
             PVWdic[s] = params[i+1]
-        LCnew = TransformLegendreCoeffs(LCRef,PVWdic)
+
+        normP = False
+        if ('p' in paramstring) and ('v' in paramstring):
+            normP = True  # Break degeneracy with v by normalising pixel shift
+        LCnew = TransformLegendreCoeffs(LCRef,PVWdic,normP=normP)
 
         Xtransformed = np.polynomial.legendre.legval(grid,LCnew) 
     else:
@@ -263,7 +274,11 @@ def ReCalibrateDispersionSolution(SpectrumY,RefSpectrum,method='p3',sigma=None,c
         # to transform the calibrated wavelength array.
         for i,s in enumerate(paramstring):
             PVWdic[s] = popt[i+1]
-        LCnew = TransformLegendreCoeffs(LCRef,PVWdic)
+
+        normP = False
+        if ('p' in paramstring) and ('v' in paramstring):
+            normP = True  # Break degeneracy with v by normalising pixel shift
+        LCnew = TransformLegendreCoeffs(LCRef,PVWdic, normP=normP)
 
         wavl_sln = np.polynomial.legendre.legval(grid,LCnew) 
 
