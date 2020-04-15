@@ -130,7 +130,7 @@ def errorfunc_tominimise(params,method='l',Reg=0,RefSpectrum=None,DataToFit=None
     PredictedSpectrum = interp.splev(Xtransformed, tck)
     if sigma is None:
         sigma=1
-    return  np.concatenate(((PredictedSpectrum-DataToFit)/sigma,Reg*np.abs(params[1:])))
+    return  np.concatenate(((PredictedSpectrum-DataToFit)/sigma,np.sqrt(Reg*np.abs(params[1:]))))
 
     
 
