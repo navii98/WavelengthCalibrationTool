@@ -239,14 +239,17 @@ def ReCalibrateDispersionSolution(SpectrumY,RefSpectrum,method='p3',sigma=None,c
         grid = np.linspace(-1,1,len(RefWavl))
         LCRef = np.polynomial.legendre.legfit(grid,RefWavl,deg=ldeg)
         
-        Initp={'v':1e-4,'p':0.001,'w':0.01}
+        Initp={'v':1e-6,'p':1e-6,'w':1e-3}
         # Initial estimate of the parameters to fit  [0 for each parameter to fit]
         p0 = [1]+[Initp[s] for s in paramstring]  # 1 is for scaling, rest are the parameters
+        x_scaledic = {'v':1e-7,'p':1e-6,'w':1e-3}  # Approximate scales of the parameters
+        x_scale = [1.] + [x_scaledic[s] for s in paramstring]  # 1 is for scaling, rest are the parameters
         l_errorfunc_tominimise = partial(errorfunc_tominimise,method='l',Reg=Reg,paramstofit=paramstring,
                                          WavlCoords=RefWavl,RefSpectrum=RefFlux,DataToFit=SpectrumY,sigma=sigma,
                                          LCRef=LCRef,defaultParamDic=PVWdic) 
-        fitoutput = optimize.least_squares(l_errorfunc_tominimise,p0)
+        fitoutput = optimize.least_squares(l_errorfunc_tominimise,p0,x_scale=x_scale,ftol=None,xtol=1e-10)
         popt = fitoutput['x'] 
+        print('Fitting {0} terminated in status number {1}'.format(paramstring,fitoutput['status']))
         if cov :
             # Calculate pcov based on scipy.curve_fit code ##################################
             # Do Moore-Penrose inverse discarding zero singular values.
