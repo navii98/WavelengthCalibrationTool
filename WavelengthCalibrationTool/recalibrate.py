@@ -172,7 +172,7 @@ def errorfunc_tominimise(params,method='l',Reg=0,RefSpectrum=None,DataToFit=None
 
     
 
-def ReCalibrateDispersionSolution(SpectrumY,RefSpectrum,method='p3',sigma=None,cov=False,Reg=0,defaultParamDic=None):
+def ReCalibrateDispersionSolution(SpectrumY,RefSpectrum,method='p3',sigma=None,cov=False,Reg=0,defaultParamDic=None,scalepixel=True):
     """ Recalibrate the dispertion solution of SpectrumY using 
     RefSpectrum by fitting the relative drift using the input method.
     Input:
@@ -183,6 +183,7 @@ def ReCalibrateDispersionSolution(SpectrumY,RefSpectrum,method='p3',sigma=None,c
        cov: (bool, default False) Set cov=True to return an estimate of the covarience matrix of parameters 
        Reg: Regularisation parameter for LASSO (Currently implemented only for multi parameter Legendre polynomials) 
        defaultParamDic: Default values for parameters in a multi parameter model. Example for l* methods. 
+       scalepixel: (bool, default True) scale input coordinates to -1 to 1, NOTE: Currently this scaling done only for method = p* and c*.
       Available methods: 
                pN : Fits a Nth order polynomial distortion  
                cN : Fits a Nth order Chebyshev polynomial distortion 
@@ -205,7 +206,10 @@ def ReCalibrateDispersionSolution(SpectrumY,RefSpectrum,method='p3',sigma=None,c
 
     # For stability and fast convergence lets scale the wavelength to -1 to 1 interval. (Except for doppler shift method)
     if method[0] in ['p','c']:
-        scaledWavl = scale_interval_m1top1(RefWavl,a=min(RefWavl),b=max(RefWavl))
+        if scalepixel:
+            scaledWavl = scale_interval_m1top1(RefWavl,a=min(RefWavl),b=max(RefWavl))
+        else:
+            scaledWavl = RefWavl
 
     if (method[0] == 'p') and method[1:].isdigit():
         # Use polynomial of p* degree.
@@ -325,9 +329,12 @@ def ReCalibrateDispersionSolution(SpectrumY,RefSpectrum,method='p3',sigma=None,c
         raise NotImplementedError('Unknown fitting method {0}'.format(method))
 
     if method[0] in ['p','c']:
-        wavl_sln = scale_interval_m1top1(transformed_scaledWavl,
-                                         a=min(RefWavl),b=max(RefWavl),
-                                         inverse_scale=True)
+        if scalepixel:
+            wavl_sln = scale_interval_m1top1(transformed_scaledWavl,
+                                             a=min(RefWavl),b=max(RefWavl),
+                                             inverse_scale=True)
+        else:
+            wavl_sln = transformed_scaledWavl
 
     if cov :
         return wavl_sln, popt, pcov
