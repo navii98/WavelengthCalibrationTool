@@ -51,7 +51,25 @@ def TransformLegendreCoeffs(LC,PVWdic,normP=False):
 
     return T_LC
 
-
+def update_coeffs_with_defaults(coeffs,defaultParamDic=None):
+    """ Returns the updated coeffs list with the values in defaultParamDic """
+    if defaultParamDic:
+        if isinstance(coeffs,tuple): # Change it to a list so that we can update
+            coeffs = list(coeffs)
+        for key in sorted(defaultParamDic.keys()):
+            try:
+                coeffs[key] = defaultParamDic[key]
+            except IndexError:
+                if len(coeffs) == key:
+                    try:
+                        coeffs.append(defaultParamDic[key])
+                    except AttributeError: # if coeffs is a numpy array or tuple
+                        coeffs = np.concatenate([coeffs, [defaultParamDic[key]]])
+                else:
+                    print('Missing number of coefficents ({0}) to add/insert default coeff {1} from {2}'.format(len(coeffs),key,defaultParamDic))
+                    raise
+    return coeffs
+    
 def transformed_spectrum(FluxSpec, *params, **kwargs):
     """ Returns transformed and interpolated scaled FluxSpec for fitting with data .
     Allowed **kwargs are 
@@ -70,6 +88,11 @@ def transformed_spectrum(FluxSpec, *params, **kwargs):
     else:
         method = 'c'
 
+    if 'defaultParamDic' in kwargs:
+        defaultParamDic = kwargs['defaultParamDic']
+    else:
+        defaultParamDic = None
+
     # First paramete is the flux scaling
     scaledFlux = FluxSpec*params[0]
 
@@ -78,6 +101,10 @@ def transformed_spectrum(FluxSpec, *params, **kwargs):
         coeffs =  params[1:] + (1,)  # Add fixed 1 slope
     else:   
         coeffs =  params[1:]  # Use all the coefficents for transforming polynomial 
+
+    # Overide any default params
+    if defaultParamDic:
+        coeffs = update_coeffs_with_defaults(coeffs,defaultParamDic)
 
     if method == 'p':
         Xtransformed = np.polynomial.polynomial.polyval(Xoriginal, coeffs)
@@ -189,13 +216,19 @@ def ReCalibrateDispersionSolution(SpectrumY,RefSpectrum,method='p3',sigma=None,c
             p0 = [1,0,1]+[0]*(deg-1)
         else:
             p0 = [1,0]
-        poly_transformedSpectofit = partial(transformed_spectrum,method='p',WavlCoords=scaledWavl)
+        poly_transformedSpectofit = partial(transformed_spectrum,method='p',WavlCoords=scaledWavl,defaultParamDic=defaultParamDic)
         popt, pcov = optimize.curve_fit(poly_transformedSpectofit, RefFlux, SpectrumY, p0=p0,sigma=sigma)
         if deg < 1: # Append slope 1 coeff
             popt = np.concatenate([popt, [1]])
+
+        # Overide any default params
+        coeffs = popt[1:]
+        if defaultParamDic:
+            coeffs = update_coeffs_with_defaults(coeffs,defaultParamDic)
+
         # Now we shall use the transformation obtained for scaled Ref Wavl coordinates
         # to transform the calibrated wavelength array.
-        transformed_scaledWavl = np.polynomial.polynomial.polyval(scaledWavl, popt[1:])
+        transformed_scaledWavl = np.polynomial.polynomial.polyval(scaledWavl, coeffs)
 
     elif (method[0] == 'c') and method[1:].isdigit():
         # Use chebyshev polynomial of c* degree.
@@ -206,19 +239,25 @@ def ReCalibrateDispersionSolution(SpectrumY,RefSpectrum,method='p3',sigma=None,c
             p0 = [1,0,1]+[0]*(deg-1)
         else:
             p0 = [1,0]
-        cheb_transformedSpectofit = partial(transformed_spectrum,method='c',WavlCoords=scaledWavl)
+        cheb_transformedSpectofit = partial(transformed_spectrum,method='c',WavlCoords=scaledWavl,defaultParamDic=defaultParamDic)
         popt, pcov = optimize.curve_fit(cheb_transformedSpectofit, RefFlux, SpectrumY, p0=p0,sigma=sigma)
         if deg < 1: # Append slope 1 coeff
             popt = np.concatenate([popt, [1]])
+
+        # Overide any default params
+        coeffs = popt[1:]
+        if defaultParamDic:
+            coeffs = update_coeffs_with_defaults(coeffs,defaultParamDic)
+
         # Now we shall use the transformation obtained for scaled Ref Wavl coordinates
         # to transform the calibrated wavelength array.
-        transformed_scaledWavl = np.polynomial.chebyshev.chebval(scaledWavl, popt[1:])
+        transformed_scaledWavl = np.polynomial.chebyshev.chebval(scaledWavl, coeffs)
 
     elif (method[0] == 'v'):
         # Use the 1+v/c formula to shift the spectrum. Usefull in grating sectrogrpahs where flexure is before grating.
         # Initial estimate of the parameters to fit  [1 for scaling, and 100 for velocity]
         p0 = [1,100]
-        vel_transformedSpectofit = partial(transformed_spectrum,method='v',WavlCoords=RefWavl)
+        vel_transformedSpectofit = partial(transformed_spectrum,method='v',WavlCoords=RefWavl,defaultParamDic=defaultParamDic)
         popt, pcov = optimize.curve_fit(vel_transformedSpectofit, RefFlux, SpectrumY, p0=p0,sigma=sigma)
         # Now we shall use the transformation obtained for scaled Ref Wavl coordinates
         # to transform the calibrated wavelength array.
@@ -228,7 +267,7 @@ def ReCalibrateDispersionSolution(SpectrumY,RefSpectrum,method='p3',sigma=None,c
         # Use the w+ w*v/c + deltaP*dw/dp formula to shift the spectrum. Usefull in grating sectrogrpahs where flexure is before grating as well as after grating.
         # Initial estimate of the parameters to fit  [1 for scaling, and 100 for velocity,0 for pixshift]
         p0 = [1,100,0]
-        velp_transformedSpectofit = partial(transformed_spectrum,method='x',WavlCoords=RefWavl)
+        velp_transformedSpectofit = partial(transformed_spectrum,method='x',WavlCoords=RefWavl,defaultParamDic=defaultParamDic)
         popt, pcov = optimize.curve_fit(velp_transformedSpectofit, RefFlux, SpectrumY, p0=p0,sigma=sigma)
         # Now we shall use the transformation obtained for scaled Ref Wavl coordinates
         # to transform the calibrated wavelength array.
