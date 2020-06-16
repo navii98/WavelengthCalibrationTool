@@ -8,7 +8,11 @@ import scipy.interpolate as interp
 import scipy.optimize as optimize
 from scipy import linalg 
 from scipy.constants import speed_of_light
-from functools32 import partial
+try:
+    from functools32 import partial
+except ModuleNotFoundError:
+    from functools import partial
+
 
 def scale_interval_m1top1(x,a,b,inverse_scale=False):
     """ Scales input x in interval a to b to the range -1 to 1 """
