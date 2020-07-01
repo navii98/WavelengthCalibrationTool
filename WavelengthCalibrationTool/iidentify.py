@@ -13,6 +13,8 @@ from multiprocessing import Process, Pipe
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.widgets import SpanSelector
+from astropy.io import fits
+from astropy.stats import sigma_clip
 from termios import tcflush, TCIOFLUSH
 
 def SelectLinesInteractively(SpectrumX,SpectrumY,ExtraUserInput=None,comm_pipe=None, LineSigma=3):
@@ -390,7 +392,7 @@ def InteractiveDispersionSolution(SpectrumY,disp_filename=None):
             
     
 
-def parse_args():
+def parse_args(raw_args=None):
     """ Parses the command line input arguments """
     parser = argparse.ArgumentParser(description="Interactive Wavelength Calibration Tool")
     parser.add_argument('SpectrumFluxFile', type=str,
@@ -399,23 +401,37 @@ def parse_args():
                         help="File containing the table of Wavelengths, Pixels, Error")
     parser.add_argument('OutputWavlFile', type=str,
                         help="Output filename to write calibrated Wavelength array")
-    args = parser.parse_args()
+    args = parser.parse_args(raw_args)
     return args
 
-def load_fluxdata(filename):
+def load_fluxdata(filename,fits_ext=0):
     """ Loads the flux data """
     if os.path.splitext(filename)[-1] == '.npy':
-        return np.load(args.SpectrumFluxFile)
+        return np.load(filename)
     elif os.path.splitext(filename)[-1] == '.fits':
-        from astropy.io import fits
-        return fits.getdata(filename)
+        return fits.getdata(filename,ext=fits_ext)
     else:
         print('Unknown input file extension for file : {0}'.format(filename))
         sys.exit(1)
 
-def main():
+def write_wavldata(output_filename,data,fits_headerDic=None):
+    """ Writes the wavl solution data """
+    if os.path.splitext(output_filename)[-1] == '.npy':
+        np.save(output_filename,data)
+    elif os.path.splitext(output_filename)[-1] == '.fits':
+        hdu = fits.PrimaryHDU(data)
+        if fits_headerDic is not None:
+            for key,value in fits_headerDic.items():
+                hdu.header[key] = value
+        hdu.writeto(output_filename)
+    else:
+        print('Unknown output file extension for file : {0}'.format(filename))
+        sys.exit(1)
+    return output_filename
+
+def main(raw_args=None):
     """ Standalone Interactive Line Identify Tool """
-    args = parse_args()
+    args = parse_args(raw_args)
     extbracket = re.search('\[(\d+)\]$', os.path.splitext(args.SpectrumFluxFile)[-1])
     if extbracket is None:
         SpectrumY = load_fluxdata(args.SpectrumFluxFile)
