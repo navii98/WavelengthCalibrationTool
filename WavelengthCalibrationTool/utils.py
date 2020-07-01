@@ -65,3 +65,65 @@ def FitLineToData(SpecX,SpecY,Pos,Amp,AmpisBkgSubtracted=True,Sigma = 1.5, Windo
     Model_fit.mean_0.value = Model_fit.mean_0.value + Xoffset
     Model_fit.intercept_1.value = Model_fit.intercept_1.value - Model_fit.slope_1.value*Xoffset
     return Model_fit
+
+def create_orthogonal_polynomials_ttr(deg,x,weights=None):
+    """ Creates Discrete Orthogonal Polynomial Basis function of degree `deg`, at locations `x`, weights by given by `weights` 
+    Parameters
+    ----------
+    deg : int
+          Degree of the polynomials to return
+    x  : 1D numpy array
+          Discrete points in domain to evaluvate the polynomial
+    weights: 1D numpy array (optional; default: np.ones(len(x)))
+          Weights under which the ploynomials should be orthogonal
+
+    Returns
+    -------
+    base_polynomials : list of polynomials
+         List of orthogonal np.polynomial.Polynomial objects
+
+    Algorithm
+    --------
+    Uses the Three Term Recurrence formula to calculate the orthogonal polynomials. This is more stable than Gram-Schmidt procedure.
+    Reference : A First Course in Numerical Analysis 2nd ed. Ralston, Rabinowitz. Page 256
+    Equations: 6.4-14,15,17,20,21
+    """
+    if weights is None:
+        weights = np.ones(len(x))
+    p_m1 = np.polynomial.Polynomial(coef=[0.])
+    p_0 = np.polynomial.Polynomial(coef=[1.])
+    base_polynomials = [p_m1,p_0]
+    p_x = np.polynomial.Polynomial(coef=[0,1.])
+
+    for jp1 in range(1,deg+1):  # loop through j+1 start with j+1=1
+        p_j = base_polynomials[jp1-1 +1]  # +1 since the first element is p_m1
+        p_jm1 = base_polynomials[jp1-2 +1]
+        if jp1 == 1 :
+            alpha_jp1 = np.sum(weights*x)/np.sum(weights)
+            beta_j = 0  # setting it to zero to avoid divide by zero
+        else:
+            alpha_jp1 = np.sum(weights*x*p_j(x)**2)/np.sum(weights*p_j(x)**2)
+            beta_j = np.sum(weights*p_j(x)**2)/np.sum(weights*p_jm1(x)**2)
+        p_jp1 = (p_x-alpha_jp1)*p_j - beta_j*p_jm1
+        base_polynomials.append(p_jp1)
+
+    return base_polynomials[1:] # skip the first p_m1 term
+
+
+def eval_polynomial_basis(x,coeffs,p_list):
+    """ Returns the evaluvated values at `x` using the lineary combination of `p_list` with linear combination coefficent `coeffs` """
+    x = np.array(x)
+    return np.sum([c*p(x) for c,p in zip(coeffs,p_list)],axis=0)
+    
+def fit_polynomial_basis(X,Y,p_list,full_output=False):
+    """ Fits `X` versus `Y` using a linear combination of the polynomial list `p_list` """
+    def error_func(c_values):
+        return eval_polynomial_basis(X,c_values,p_list) - np.array(Y)
+    
+    c0 = np.ones(len(p_list))
+    res = least_squares(error_func, c0)
+    # print(res.message,res.status,res.success)
+    if full_output:
+        return res.x, res
+    else:
+        return res.x
