@@ -17,7 +17,7 @@ from astropy.io import fits
 from astropy.stats import sigma_clip
 from termios import tcflush, TCIOFLUSH
 
-def SelectLinesInteractively(SpectrumX,SpectrumY,ExtraUserInput=None,comm_pipe=None, LineSigma=3):
+def SelectLinesInteractively(SpectrumX,SpectrumY,ExtraUserInput=None,comm_pipe=None, LineSigma=1.5):
     """ Fits Gaussian to all points user press m and c to confirm
     ExtaUserInput : (str) If provided will ask user from the extra input for each line 
                         Example: 'Wavelength'
@@ -62,7 +62,7 @@ def SelectLinesInteractively(SpectrumX,SpectrumY,ExtraUserInput=None,comm_pipe=N
             if PlotedLines:
                 ax.lines.remove(PlotedLines[-1])  # Remove the last entry in the plotedlines
             IndxCenter = NearestIndex(SpectrumX,Model_fit.mean_0.value)
-            SliceToPlotX = SpectrumX[max(0,IndxCenter-4*LineSigma):min(IndxCenter+4*LineSigma+1,len(SpectrumX)+1)]
+            SliceToPlotX = SpectrumX[max(0,IndxCenter-5*LineSigma):min(IndxCenter+5*LineSigma+1,len(SpectrumX)+1)]
             linefit, =  ax.plot(SliceToPlotX,Model_fit(SliceToPlotX),color='r')
             PlotedLines.append(linefit)
             ax.figure.canvas.draw()
@@ -95,26 +95,30 @@ def SelectLinesInteractively(SpectrumX,SpectrumY,ExtraUserInput=None,comm_pipe=N
     # print('Identified Lines : {0}'.format(LinesConfirmedToReturn))
     return LinesConfirmedToReturn
 
-def FittedFunction(pixels,wavel,sigma=None,method='c3'):
+def get_fitted_function(pixels,wavel,sigma=None,method='c3',return_coeff=False,sigma_to_clip=False):
     """ Returns the fitted function f(pixels) = wavel .
     Define all the methods to use for fitting here """
     output_object = None
+    pixels = np.array(pixels)
+    wavel = np.array(wavel)
+    sigma = np.array(sigma)
 
     if (method[0] == 'p') and method[1:].isdigit():
         # Use polynomial of p* degree.
         deg = int(method[1:])
-        p,residuals,rank,sing_values,rcond = np.polyfit(pixels,wavel,deg,w=1/np.array(sigma),full=True)
+        p,residuals,rank,sing_values,rcond = np.polyfit(pixels,wavel,deg,w=1/sigma,full=True)
         print('Stats of the poly fit of degree {0}'.format(deg))
         print('Poly Coeffs p: {0}'.format(p))
         print('residuals:{0},  rank:{1}, singular_values:{2}, rcond:{3}'.format(residuals,
                                                                                 rank,sing_values,
                                                                                 rcond))
         output_object = np.poly1d(p)
+        coeffs = p
 
     elif (method[0] == 'c') and method[1:].isdigit():
         # Use Chebyshev polynomial of c* degree.
         deg = int(method[1:])
-        c, (residuals,rank,sing_values,rcond) = np.polynomial.chebyshev.chebfit(pixels,wavel,deg,w=1/np.array(sigma),full=True)
+        c, (residuals,rank,sing_values,rcond) = np.polynomial.chebyshev.chebfit(pixels,wavel,deg,w=1/sigma,full=True)
         print('Stats of the Chebyshev polynomial fit of degree {0}'.format(deg))
         print('Cheb Coeffs c: {0}'.format(c))
         print('residuals:{0},  rank:{1}, singular_values:{2}, rcond:{3}'.format(residuals,
@@ -123,8 +127,22 @@ def FittedFunction(pixels,wavel,sigma=None,method='c3'):
         output_object = lambda x : np.polynomial.chebyshev.chebval(x, c)
     else:
         print('Error: unknown fitting method {0}'.format(method))
+        raise NotImplementedError
 
-    return output_object
+    if sigma_to_clip:
+        # Do a sigma clipping filtering of the data points
+        residue = (wavel - output_object(pixels))/sigma
+        filtered_residue = sigma_clip(residue, sigma=sigma_to_clip)
+        Mask = ~filtered_residue.mask
+        print('Refitting after rejecting {0} outliers'.format(np.sum(~Mask)))
+        output_object, coeffs = get_fitted_function(pixels[Mask],wavel[Mask],sigma=sigma[Mask],method=method,return_coeff=True,sigma_to_clip=False)
+
+    if return_coeff and sigma_to_clip:
+        return output_object, coeffs, Mask
+    elif return_coeff:
+        return output_object, coeffs
+    else:
+        return output_object
 
 def read_dispersion_inputfile(filename):
     """ Reads the Dispersion Input text file.
@@ -191,9 +209,9 @@ def update_main_figure(fig_main,SpectrumY,wavltofit__wavl_pix_sigma):
     print(wavltofit__wavl_pix_sigma[1])
     wavelengths_inp,pixels_inp,sigma_inp = wavltofit__wavl_pix_sigma[1]
     wavelengths_tofit = wavltofit__wavl_pix_sigma[0]
-    disp_func = FittedFunction(pixels=pixels_inp,
-                               wavel=wavelengths_inp,
-                               sigma=sigma_inp, method='c6')
+    disp_func = get_fitted_function(pixels=pixels_inp,
+                                    wavel=wavelengths_inp,
+                                    sigma=sigma_inp, method='c6')
     fig_main.clf()
     ax = fig_main.add_subplot(111)
 
@@ -245,10 +263,11 @@ def AddlinesbyInteractiveSelection(SpectrumY,disp_filename,comm_pipe=None):
         writeto_dispersion_inputfile(disp_filename,wavl,pix,sigma)
 
 
-def TryToFitNewLinesinSpectrum(SpectrumY,disp_filename,LineSigma=3,reference_dispfile = None):
+def TryToFitNewLinesinSpectrum(SpectrumY,disp_filename,LineSigma=1.5,reference_dispfile = None, SpectrumY_Var = None):
     """ Try to fit gaussian at the line wavelengths without pixel position in the disp_filename.
     And add the fitted pixels values to the file.
     If reference_dispfile is provided, data in that file will be used to claculate dispersion solution
+    SpectrumY_Var (optional): Variance of the SpectrumY array if need to be considerd in line fitting.
     """
     if reference_dispfile is None:  # use the entry in disp_filename itself
         reference_dispfile = disp_filename
@@ -258,20 +277,20 @@ def TryToFitNewLinesinSpectrum(SpectrumY,disp_filename,LineSigma=3,reference_dis
     # Now read the wavelengths to calibrate
     wavelengths_tofit, (_discard1,_discard2,_discard3) = read_dispersion_inputfile(disp_filename)
     # Dispertion function
-    disp_func = FittedFunction(pixels=pixels_inp,
-                               wavel=wavelengths_inp,
-                               sigma=sigma_inp, method='c6')
+    disp_func = get_fitted_function(pixels=pixels_inp,
+                                    wavel=wavelengths_inp,
+                                    sigma=sigma_inp, method='c6')
 
     pix_fitted = []
     sigma_fitted = []
     for wavel in wavelengths_tofit:
         XPixarray = np.arange(len(SpectrumY))
         Xpos = NearestIndex(disp_func(XPixarray),wavel)
-        Ampl_init = np.max(SpectrumY[Xpos-LineSigma:Xpos+LineSigma]) - \
-                    np.min(SpectrumY[Xpos-LineSigma:Xpos+LineSigma])
+        Ampl_init = np.max(SpectrumY[int(np.rint(Xpos-3*LineSigma)):int(np.rint(Xpos+3*LineSigma))+1]) - \
+                    np.min(SpectrumY[int(np.rint(Xpos-3*LineSigma)):int(np.rint(Xpos+3*LineSigma))+1])
         # Fit a Guassian line
         Model_fit = FitLineToData(XPixarray,SpectrumY,Xpos,Ampl_init,
-                                  AmpisBkgSubtracted=False,Sigma = LineSigma)
+                                  AmpisBkgSubtracted=False,Sigma = LineSigma, SpecY_Var = SpectrumY_Var)
         pix_fitted.append(Model_fit.mean_0.value)
         sigma_fitted.append(1) # to be updated later with actual error
     # Write the fitted pixel positions
@@ -319,9 +338,9 @@ def StartInteractiveLineSelectionSubrocess(SpectrumY,disp_filename):
             pdeg = '6'
         else:
             pdeg = '3'
-        disp_func = FittedFunction(pixels=pixels_inp,
-                                   wavel=wavelengths_inp,
-                                   sigma=sigma_inp, method='c'+pdeg)
+        disp_func = get_fitted_function(pixels=pixels_inp,
+                                        wavel=wavelengths_inp,
+                                        sigma=sigma_inp, method='c'+pdeg)
 
     while Clientmsg:
         Clientmsg = parent_conn.recv_bytes()
