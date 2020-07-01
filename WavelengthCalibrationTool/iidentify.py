@@ -125,6 +125,20 @@ def get_fitted_function(pixels,wavel,sigma=None,method='c3',return_coeff=False,s
                                                                                 rank,sing_values,
                                                                                 rcond))
         output_object = lambda x : np.polynomial.chebyshev.chebval(x, c)
+        coeffs = c
+
+    elif (method[0] == 'l') and method[1:].isdigit():
+        # Use Legendre polynomial of l* degree.
+        deg = int(method[1:])
+        c, (residuals,rank,sing_values,rcond) = np.polynomial.legendre.legfit(pixels,wavel,deg,w=1/sigma,full=True)
+        print('Stats of the Legendre polynomial fit of degree {0}'.format(deg))
+        print('Legendre Coeffs c: {0}'.format(c))
+        print('residuals:{0},  rank:{1}, singular_values:{2}, rcond:{3}'.format(residuals,
+                                                                                rank,sing_values,
+                                                                                rcond))
+        output_object = lambda x : np.polynomial.legendre.legval(x, c)
+        coeffs = c
+
     else:
         print('Error: unknown fitting method {0}'.format(method))
         raise NotImplementedError
