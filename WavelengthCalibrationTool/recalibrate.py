@@ -8,6 +8,7 @@ import scipy.interpolate as interp
 import scipy.optimize as optimize
 from scipy import linalg 
 from scipy.constants import speed_of_light
+from .utils import calculate_cov_matrix_fromscipylsq
 try:
     from functools32 import partial
 except ModuleNotFoundError:
@@ -309,14 +310,7 @@ def ReCalibrateDispersionSolution(SpectrumY,RefSpectrum,method='p3',sigma=None,c
         popt = fitoutput['x'] 
         print('Fitting {0} terminated in status number {1}'.format(paramstring,fitoutput['status']))
         if cov :
-            # Calculate pcov based on scipy.curve_fit code ##################################
-            # Do Moore-Penrose inverse discarding zero singular values.
-            _, s, VT = linalg.svd(fitoutput.jac, full_matrices=False)
-            threshold = np.finfo(float).eps * max(fitoutput.jac.shape) * s[0]
-            s = s[s > threshold]
-            VT = VT[:s.size]
-            pcov = np.dot(VT.T / s**2, VT)
-        ############################################################# End of code form scipy.curve_fit
+            pcov = calculate_cov_matrix_fromscipylsq(fitoutput)
         # Now we shall use the transformation obtained for scaled Ref Wavl coordinates
         # to transform the calibrated wavelength array.
         for i,s in enumerate(paramstring):

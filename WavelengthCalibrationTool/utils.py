@@ -3,6 +3,7 @@
 import numpy as np
 from astropy.modeling import models, fitting
 from scipy.optimize import least_squares
+from scipy import linalg 
 
 def NearestIndex(Array,value):
     """ Returns the index of element in numpy 1d Array nearest to value """
@@ -127,3 +128,30 @@ def fit_polynomial_basis(X,Y,p_list,full_output=False):
         return res.x, res
     else:
         return res.x
+
+def calculate_cov_matrix_fromscipylsq(scipylsq_res,absolute_sigma=True):
+    """ Returns the covariance matrix of the scipy.least_squares fit output.
+        Adapted from the scipy.curve_fit code.
+    Parameters:
+        scipylsq_res : is the result object returned by scipy.least_squares
+        absolute_sigma: Boolean to indicate wheter the sigma provided to the scipy.least_squares was absolute or relative
+    Returns:
+        pcov : covariance matrix
+    """
+    # Code below is from https://github.com/scipy/scipy/blob/v1.5.3/scipy/optimize/minpack.py#L532-L834
+    # Do Moore-Penrose inverse discarding zero singular values.
+    _, s, VT = linalg.svd(scipylsq_res.jac, full_matrices=False)
+    threshold = np.finfo(float).eps * max(scipylsq_res.jac.shape) * s[0]
+    s = s[s > threshold]
+    VT = VT[:s.size]
+    pcov = np.dot(VT.T / s**2, VT)
+
+    if not absolute_sigma:
+        ysize = len(scipylsq_res.fun)
+        cost = 2 * scipylsq_res.cost  # scipylsq_res.cost is half sum of squares!
+        popt = scipylsq_res.x
+        if ysize > len(popt):
+            s_sq = cost / (ysize - len(popt))
+            pcov = pcov * s_sq
+
+    return pcov
