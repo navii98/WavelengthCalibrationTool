@@ -6,9 +6,14 @@ import argparse
 import numpy as np
 import scipy.interpolate as interp
 import scipy.optimize as optimize
-from scipy import linalg 
+import logging
 from scipy.constants import speed_of_light
 from .utils import calculate_cov_matrix_fromscipylsq
+try:
+    from skimage import registration
+except ImportError:
+    logging.warning('Failed to import scikit-image module for fast phase_cross_correlation. Fast phase_cross_correlation function will not work without that.')
+
 try:
     from functools32 import partial
 except ModuleNotFoundError:
@@ -177,13 +182,14 @@ def errorfunc_tominimise(params,method='l',Reg=0,RefSpectrum=None,DataToFit=None
 
     
 
-def ReCalibrateDispersionSolution(SpectrumY,RefSpectrum,method='p3',sigma=None,cov=False,Reg=0,defaultParamDic=None,scalepixel=True):
+def ReCalibrateDispersionSolution(SpectrumY,RefSpectrum,method='p3',initial_guess=None,sigma=None,cov=False,Reg=0,defaultParamDic=None,scalepixel=True):
     """ Recalibrate the dispertion solution of SpectrumY using 
     RefSpectrum by fitting the relative drift using the input method.
     Input:
        SpectrumY: Un-calibrated Spectrum Flux array
        RefSpectrum: Wavelength Calibrated reference spectrum (Flux vs wavelegnth array:(N,2))
        method: (str, default: p3) the method used to model and fit the drift in calibration
+       initial_guess: (list, optional) Optional initial guess of the coeffients for the distortion model
        sigma: See sigma arg of scipy.optimize.curve_fit ; it is the inverse weights for residuals
        cov: (bool, default False) Set cov=True to return an estimate of the covarience matrix of parameters 
        Reg: Regularisation parameter for LASSO (Currently implemented only for multi parameter Legendre polynomials) 
@@ -221,7 +227,9 @@ def ReCalibrateDispersionSolution(SpectrumY,RefSpectrum,method='p3',sigma=None,c
         deg = int(method[1:])
         # Initial estimate of the parameters to fit
         # [scalefactor,*p] where p is the polynomial coefficents
-        if deg > 0:
+        if initial_guess is not None:
+            p0 = initial_guess
+        elif deg > 0:
             p0 = [1,0,1]+[0]*(deg-1)
         else:
             p0 = [1,0]
@@ -244,7 +252,9 @@ def ReCalibrateDispersionSolution(SpectrumY,RefSpectrum,method='p3',sigma=None,c
         deg = int(method[1:])
         # Initial estimate of the parameters to fit
         # [scalefactor,*c] where c is the chebyshev polynomial coefficents
-        if deg > 0:
+        if initial_guess is not None:
+            p0 = initial_guess
+        elif deg > 0:
             p0 = [1,0,1]+[0]*(deg-1)
         else:
             p0 = [1,0]
@@ -265,7 +275,10 @@ def ReCalibrateDispersionSolution(SpectrumY,RefSpectrum,method='p3',sigma=None,c
     elif (method[0] == 'v'):
         # Use the 1+v/c formula to shift the spectrum. Usefull in grating sectrogrpahs where flexure is before grating.
         # Initial estimate of the parameters to fit  [1 for scaling, and 100 for velocity]
-        p0 = [1,100]
+        if initial_guess is not None:
+            p0 = initial_guess
+        else:
+            p0 = [1,100]
         vel_transformedSpectofit = partial(transformed_spectrum,method='v',WavlCoords=RefWavl,defaultParamDic=defaultParamDic)
         popt, pcov = optimize.curve_fit(vel_transformedSpectofit, RefFlux, SpectrumY, p0=p0,sigma=sigma)
         # Now we shall use the transformation obtained for scaled Ref Wavl coordinates
@@ -275,7 +288,10 @@ def ReCalibrateDispersionSolution(SpectrumY,RefSpectrum,method='p3',sigma=None,c
     elif (method[0] == 'x'):
         # Use the w+ w*v/c + deltaP*dw/dp formula to shift the spectrum. Usefull in grating sectrogrpahs where flexure is before grating as well as after grating.
         # Initial estimate of the parameters to fit  [1 for scaling, and 100 for velocity,0 for pixshift]
-        p0 = [1,100,0]
+        if initial_guess is not None:
+            p0 = initial_guess
+        else:
+            p0 = [1,100,0]
         velp_transformedSpectofit = partial(transformed_spectrum,method='x',WavlCoords=RefWavl,defaultParamDic=defaultParamDic)
         popt, pcov = optimize.curve_fit(velp_transformedSpectofit, RefFlux, SpectrumY, p0=p0,sigma=sigma)
         # Now we shall use the transformation obtained for scaled Ref Wavl coordinates
@@ -300,7 +316,10 @@ def ReCalibrateDispersionSolution(SpectrumY,RefSpectrum,method='p3',sigma=None,c
         
         Initp={'v':1e-6,'p':1e-6,'w':1e-3}
         # Initial estimate of the parameters to fit  [0 for each parameter to fit]
-        p0 = [1]+[Initp[s] for s in paramstring]  # 1 is for scaling, rest are the parameters
+        if initial_guess is not None:
+            p0 = initial_guess
+        else:
+            p0 = [1]+[Initp[s] for s in paramstring]  # 1 is for scaling, rest are the parameters
         x_scaledic = {'v':1e-7,'p':1e-6,'w':1e-3}  # Approximate scales of the parameters
         x_scale = [1.] + [x_scaledic[s] for s in paramstring]  # 1 is for scaling, rest are the parameters
         l_errorfunc_tominimise = partial(errorfunc_tominimise,method='l',Reg=Reg,paramstofit=paramstring,
@@ -339,6 +358,10 @@ def ReCalibrateDispersionSolution(SpectrumY,RefSpectrum,method='p3',sigma=None,c
     else:
         return wavl_sln, popt
         
+
+def calculate_pixshift_with_phase_cross_correlation(shifted_spec,reference_spec,upsample_factor=10):
+    """ Returns the pixel shift between `shifted_spec` and `reference_spec` at the resolution of 1/upsample_factor """
+    return registration.phase_cross_correlation(reference_spec,shifted_spec,upsample_factor=upsample_factor,return_error=False)[0]
 
 def parse_args(raw_args=None):
     """ Parses the command line input arguments """
