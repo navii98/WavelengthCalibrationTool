@@ -125,7 +125,7 @@ def transformed_spectrum(FluxSpec, *params, **kwargs):
         
     # interpolate the original spectrum to new coordinates
     tck = interp.splrep(Xoriginal, scaledFlux)
-    return interp.splev(Xtransformed, tck)
+    return interp.splev(Xtransformed, tck,ext=3)
 
 
 def errorfunc_tominimise(params,method='l',Reg=0,RefSpectrum=None,DataToFit=None,sigma=None,defaultParamDic=None,**kwargs ):
