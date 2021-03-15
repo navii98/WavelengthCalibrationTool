@@ -16,13 +16,16 @@ from matplotlib.widgets import SpanSelector
 from astropy.io import fits
 from astropy.stats import sigma_clip
 from termios import tcflush, TCIOFLUSH
+# For python 2, replace the input function with raw_input
+if sys.version_info < (3,0):
+    input = raw_input
 
 def SelectLinesInteractively(SpectrumX,SpectrumY,ExtraUserInput=None,comm_pipe=None, LineSigma=1.5):
     """ Fits Gaussian to all points user press m and c to confirm
     ExtaUserInput : (str) If provided will ask user from the extra input for each line 
                         Example: 'Wavelength'
 
-    comm_pipe : One end of the Pipe which needs to be used for getting raw_input from parent process.
+    comm_pipe : One end of the Pipe which needs to be used for getting input from parent process.
     LineSigma : Approximated Sigma width of the line in pixels. 
                 Size of the window region to use for fitting line will be 5*LineSigma.
     Returns : List of Fitted Line Models (and user input if any).
@@ -78,8 +81,8 @@ def SelectLinesInteractively(SpectrumX,SpectrumY,ExtraUserInput=None,comm_pipe=N
 
             if ExtraUserInput is not None:  # Ask user for the extra input
                 # Send the Input msg string and the model fit value
-                comm_pipe.send_bytes('{0}: |{1}'.format(ExtraUserInput,LatestLineModel[0].mean_0.value))
-                Uinput = comm_pipe.recv_bytes()
+                comm_pipe.send('{0}: |{1}'.format(ExtraUserInput,LatestLineModel[0].mean_0.value))
+                Uinput = comm_pipe.recv()
                 LinesConfirmedToReturn.append((LatestLineModel[0],Uinput))
             else:
                 LinesConfirmedToReturn.append(LatestLineModel[0])
@@ -91,7 +94,7 @@ def SelectLinesInteractively(SpectrumX,SpectrumY,ExtraUserInput=None,comm_pipe=N
 
     cid = figi.canvas.mpl_connect('key_press_event', on_key)
     plt.show()
-    comm_pipe.send_bytes('')
+    comm_pipe.send('')
     # print('Identified Lines : {0}'.format(LinesConfirmedToReturn))
     return LinesConfirmedToReturn
 
@@ -357,7 +360,7 @@ def StartInteractiveLineSelectionSubrocess(SpectrumY,disp_filename):
                                         sigma=sigma_inp, method='c'+pdeg)
 
     while Clientmsg:
-        Clientmsg = parent_conn.recv_bytes()
+        Clientmsg = parent_conn.recv()
         if Clientmsg:
             PromptMsg = '|'.join(Clientmsg.split('|')[:-1])
             DefaultValue = ''
@@ -372,11 +375,11 @@ def StartInteractiveLineSelectionSubrocess(SpectrumY,disp_filename):
                     PromptMsg = PromptMsg+'(Default:{0}):'.format(DefaultValue)
                     
             tcflush(sys.stdin, TCIOFLUSH) # Flush anythin in terminal buffer
-            usr_inp = raw_input(PromptMsg)
+            usr_inp = input(PromptMsg)
             if usr_inp:
-                parent_conn.send_bytes(usr_inp)
+                parent_conn.send(usr_inp)
             else:
-                parent_conn.send_bytes(DefaultValue)
+                parent_conn.send(DefaultValue)
     fp.join()
     
     
@@ -405,7 +408,7 @@ def InteractiveDispersionSolution(SpectrumY,disp_filename=None):
         
     while not DoneWithFitting:
         tcflush(sys.stdin, TCIOFLUSH) # Flush anythin in terminal buffer
-        usr_input = raw_input('>> ')
+        usr_input = input('>> ')
         if usr_input == 'done':
             print('Exiting the fitting tool..')
             print('Close all Figure windows to exit..')
