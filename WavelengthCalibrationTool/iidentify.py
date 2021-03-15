@@ -62,7 +62,7 @@ def SelectLinesInteractively(SpectrumX,SpectrumY,ExtraUserInput=None,comm_pipe=N
             if PlotedLines:
                 ax.lines.remove(PlotedLines[-1])  # Remove the last entry in the plotedlines
             IndxCenter = NearestIndex(SpectrumX,Model_fit.mean_0.value)
-            SliceToPlotX = SpectrumX[max(0,IndxCenter-5*LineSigma):min(IndxCenter+5*LineSigma+1,len(SpectrumX)+1)]
+            SliceToPlotX = SpectrumX[max(0,int(IndxCenter-5*LineSigma)):min(int(IndxCenter+5*LineSigma+1),len(SpectrumX)+1)]
             linefit, =  ax.plot(SliceToPlotX,Model_fit(SliceToPlotX),color='r')
             PlotedLines.append(linefit)
             ax.figure.canvas.draw()
