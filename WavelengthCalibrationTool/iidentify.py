@@ -155,7 +155,8 @@ def get_fitted_function(pixels,wavel,sigma=None,method='c3',return_coeff=False,s
             smooth = float(method[1:])
         else:
             smooth = None
-        output_object = scipy.interpolate.UnivariateSpline(pixels,wavel, w=1/sigma,k=3, s=smooth, ext=0)
+        isort = np.argsort(pixels)  # indices for sorting the input to spline funtion
+        output_object = scipy.interpolate.UnivariateSpline(pixels[isort],wavel[isort], w=1/sigma[isort],k=3, s=smooth, ext=0)
         print('Stats of the Spline fit of smoothness {0}'.format(smooth))
         print('Spline Knots :{0}'.format(output_object.get_knots()))
         print('Spline Coeffs :{0}'.format(output_object.get_coeffs()))
