@@ -16,6 +16,8 @@ from matplotlib.widgets import SpanSelector
 from astropy.io import fits
 from astropy.stats import sigma_clip
 from termios import tcflush, TCIOFLUSH
+import scipy.interpolate
+
 # For python 2, replace the input function with raw_input
 if sys.version_info < (3,0):
     input = raw_input
@@ -100,7 +102,12 @@ def SelectLinesInteractively(SpectrumX,SpectrumY,ExtraUserInput=None,comm_pipe=N
 
 def get_fitted_function(pixels,wavel,sigma=None,method='c3',return_coeff=False,sigma_to_clip=False):
     """ Returns the fitted function f(pixels) = wavel .
-    Define all the methods to use for fitting here """
+    Define all the methods to use for fitting here
+    pX : polynoial of X degree
+    cX : Chebyshev polynoial of X degree
+    lX : Legendre polynoial of X degree
+    sX : spline with smoothing parameter X
+    """
     output_object = None
     pixels = np.array(pixels)
     wavel = np.array(wavel)
@@ -141,6 +148,19 @@ def get_fitted_function(pixels,wavel,sigma=None,method='c3',return_coeff=False,s
                                                                                 rcond))
         output_object = lambda x : np.polynomial.legendre.legval(x, c)
         coeffs = c
+
+    elif (method[0] == 's'):
+        # Use spline with smoothing parameter s*
+        if method[1:]:
+            smooth = float(method[1:])
+        else:
+            smooth = None
+        output_object = scipy.interpolate.UnivariateSpline(pixels,wavel, w=1/sigma,k=3, s=smooth, ext=0)
+        print('Stats of the Spline fit of smoothness {0}'.format(smooth))
+        print('Spline Knots :{0}'.format(output_object.get_knots()))
+        print('Spline Coeffs :{0}'.format(output_object.get_coeffs()))
+        print('residuals:{0}'.format(output_object.get_residual()))
+        coeffs = output_object.get_coeffs()
 
     else:
         print('Error: unknown fitting method {0}'.format(method))
