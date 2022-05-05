@@ -27,7 +27,6 @@ setup(name='WavelengthCalibrationTool',
       install_requires = [
           'numpy',
           'matplotlib',
-          'readline>=8.0',
           'astropy',
       ],
       include_package_data=True,
